@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <time.h>
 
 #define BOARD_SIZE 10
 #define SHIP_COUNT 5
@@ -24,6 +25,7 @@ typedef struct
     char board[BOARD_SIZE][BOARD_SIZE];
     char tracking[BOARD_SIZE][BOARD_SIZE];
     int ships_remaining;
+    int is_computer;
 } Player;
 
 static const ShipSpec g_ships[SHIP_COUNT] = {
@@ -39,6 +41,7 @@ static void init_player(Player *player);
 static void clear_screen_lines(void);
 static void wait_for_enter(void);
 static void read_line(char *buffer, size_t size);
+static int prompt_game_mode(void);
 static void prompt_player_name(Player *player, int player_number);
 static void print_column_headers(void);
 static void print_single_board(char grid[BOARD_SIZE][BOARD_SIZE], int hide_ships);
@@ -48,7 +51,9 @@ static int prompt_coordinate(const char *prompt, int *row, int *col);
 static int prompt_orientation(void);
 static int can_place_ship(char board[BOARD_SIZE][BOARD_SIZE], int row, int col, int length, int horizontal);
 static void place_ship(char board[BOARD_SIZE][BOARD_SIZE], int row, int col, int length, int horizontal);
+static int random_int(int max_value);
 static void setup_ships(Player *player);
+static void setup_computer_ships(Player *player);
 static int count_ship_cells(char board[BOARD_SIZE][BOARD_SIZE]);
 static int all_ships_sunk(const Player *player);
 static void announce_shot_result(int result);
@@ -74,6 +79,7 @@ static void init_player(Player *player)
     init_grid(player->board);
     init_grid(player->tracking);
     player->ships_remaining = 0;
+    player->is_computer = 0;
 }
 
 static void clear_screen_lines(void)
@@ -116,6 +122,28 @@ static void read_line(char *buffer, size_t size)
         {
             ch = getchar();
         } while (ch != '\n' && ch != EOF);
+    }
+}
+
+static int prompt_game_mode(void)
+{
+    char buffer[16];
+    int mode;
+
+    for (;;)
+    {
+        printf("Select game mode:\n");
+        printf("1. Two players\n");
+        printf("2. Play against the computer\n");
+        printf("Choice: ");
+        read_line(buffer, sizeof(buffer));
+
+        if (sscanf(buffer, "%d", &mode) == 1 && (mode == 1 || mode == 2))
+        {
+            return mode;
+        }
+
+        printf("Please enter 1 or 2.\n\n");
     }
 }
 
@@ -179,6 +207,13 @@ static void print_single_board(char grid[BOARD_SIZE][BOARD_SIZE], int hide_ships
 
 static void print_turn_view(const Player *current)
 {
+    if (current->is_computer)
+    {
+        printf("\nComputer targeting board:\n");
+        print_single_board((char (*)[BOARD_SIZE]) current->tracking, 0);
+        return;
+    }
+
     printf("\n%s's fleet:\n", current->name);
     print_single_board((char (*)[BOARD_SIZE]) current->board, 0);
     printf("\n%s's targeting board:\n", current->name);
@@ -290,6 +325,16 @@ static void place_ship(char board[BOARD_SIZE][BOARD_SIZE], int row, int col, int
     }
 }
 
+static int random_int(int max_value)
+{
+    if (max_value <= 0)
+    {
+        return 0;
+    }
+
+    return rand() % max_value;
+}
+
 static void setup_ships(Player *player)
 {
     int i;
@@ -323,6 +368,28 @@ static void setup_ships(Player *player)
     player->ships_remaining = count_ship_cells(player->board);
     printf("\n%s is done placing ships.\n", player->name);
     wait_for_enter();
+}
+
+static void setup_computer_ships(Player *player)
+{
+    int i;
+    int row;
+    int col;
+    int horizontal;
+
+    for (i = 0; i < SHIP_COUNT; ++i)
+    {
+        do
+        {
+            row = random_int(BOARD_SIZE);
+            col = random_int(BOARD_SIZE);
+            horizontal = random_int(2);
+        } while (!can_place_ship(player->board, row, col, g_ships[i].length, horizontal));
+
+        place_ship(player->board, row, col, g_ships[i].length, horizontal);
+    }
+
+    player->ships_remaining = count_ship_cells(player->board);
 }
 
 static int count_ship_cells(char board[BOARD_SIZE][BOARD_SIZE])
@@ -374,7 +441,21 @@ static int take_shot(Player *attacker, Player *defender)
         printf("%s's turn.\n", attacker->name);
         print_turn_view(attacker);
         printf("\nFire at %s's board.\n", defender->name);
-        prompt_coordinate("Target coordinate: ", &row, &col);
+
+        if (attacker->is_computer)
+        {
+            do
+            {
+                row = random_int(BOARD_SIZE);
+                col = random_int(BOARD_SIZE);
+            } while (attacker->tracking[row][col] == CELL_HIT || attacker->tracking[row][col] == CELL_MISS);
+
+            printf("Computer fires at %c%d.\n", (char) ('A' + row), col + 1);
+        }
+        else
+        {
+            prompt_coordinate("Target coordinate: ", &row, &col);
+        }
 
         if (attacker->tracking[row][col] == CELL_HIT || attacker->tracking[row][col] == CELL_MISS)
         {
@@ -409,16 +490,30 @@ int main(void)
     Player player2;
     Player *current;
     Player *opponent;
+    int game_mode;
 
     init_player(&player1);
     init_player(&player2);
+    srand((unsigned int) time(NULL));
 
     printf("=== Battleship ===\n\n");
+    game_mode = prompt_game_mode();
     prompt_player_name(&player1, 1);
-    prompt_player_name(&player2, 2);
-
     setup_ships(&player1);
-    setup_ships(&player2);
+
+    if (game_mode == 1)
+    {
+        prompt_player_name(&player2, 2);
+        setup_ships(&player2);
+    }
+    else
+    {
+        strcpy(player2.name, "Computer");
+        player2.is_computer = 1;
+        setup_computer_ships(&player2);
+        printf("\nThe computer has placed its ships.\n");
+        wait_for_enter();
+    }
 
     current = &player1;
     opponent = &player2;
@@ -433,7 +528,14 @@ int main(void)
             break;
         }
 
-        wait_for_enter();
+        if (!current->is_computer && !opponent->is_computer)
+        {
+            wait_for_enter();
+        }
+        else if (current->is_computer)
+        {
+            wait_for_enter();
+        }
 
         if (current == &player1)
         {
