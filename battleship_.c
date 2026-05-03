@@ -42,6 +42,7 @@ static void clear_screen_lines(void);
 static void wait_for_enter(void);
 static void read_line(char *buffer, size_t size);
 static int prompt_game_mode(void);
+static int prompt_setup_mode(const Player *player);
 static void prompt_player_name(Player *player, int player_number);
 static void print_column_headers(void);
 static void print_single_board(char grid[BOARD_SIZE][BOARD_SIZE], int hide_ships);
@@ -53,7 +54,7 @@ static int can_place_ship(char board[BOARD_SIZE][BOARD_SIZE], int row, int col, 
 static void place_ship(char board[BOARD_SIZE][BOARD_SIZE], int row, int col, int length, int horizontal);
 static int random_int(int max_value);
 static void setup_ships(Player *player);
-static void setup_computer_ships(Player *player);
+static void setup_random_ships(Player *player);
 static int count_ship_cells(char board[BOARD_SIZE][BOARD_SIZE]);
 static int all_ships_sunk(const Player *player);
 static void announce_shot_result(int result);
@@ -144,6 +145,28 @@ static int prompt_game_mode(void)
         }
 
         printf("Please enter 1 or 2.\n\n");
+    }
+}
+
+static int prompt_setup_mode(const Player *player)
+{
+    char buffer[16];
+    int mode;
+
+    for (;;)
+    {
+        printf("\n%s, choose ship placement mode:\n", player->name);
+        printf("1. Place ships manually\n");
+        printf("2. Place ships randomly\n");
+        printf("Choice: ");
+        read_line(buffer, sizeof(buffer));
+
+        if (sscanf(buffer, "%d", &mode) == 1 && (mode == 1 || mode == 2))
+        {
+            return mode;
+        }
+
+        printf("Please enter 1 or 2.\n");
     }
 }
 
@@ -341,9 +364,21 @@ static void setup_ships(Player *player)
     int row;
     int col;
     int horizontal;
+    int setup_mode;
 
     clear_screen_lines();
-    printf("%s, place your ships.\n", player->name);
+    setup_mode = prompt_setup_mode(player);
+
+    if (setup_mode == 2)
+    {
+        setup_random_ships(player);
+        printf("\n%s's ships were placed randomly.\n", player->name);
+        print_single_board(player->board, 0);
+        wait_for_enter();
+        return;
+    }
+
+    printf("\n%s, place your ships.\n", player->name);
 
     for (i = 0; i < SHIP_COUNT; ++i)
     {
@@ -370,7 +405,7 @@ static void setup_ships(Player *player)
     wait_for_enter();
 }
 
-static void setup_computer_ships(Player *player)
+static void setup_random_ships(Player *player)
 {
     int i;
     int row;
@@ -510,7 +545,7 @@ int main(void)
     {
         strcpy(player2.name, "Computer");
         player2.is_computer = 1;
-        setup_computer_ships(&player2);
+        setup_random_ships(&player2);
         printf("\nThe computer has placed its ships.\n");
         wait_for_enter();
     }
